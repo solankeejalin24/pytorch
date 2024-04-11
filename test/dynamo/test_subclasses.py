@@ -1439,13 +1439,17 @@ class TestNestedTensor(torch._dynamo.test_case.TestCase):
         def backend(gm, args):
             context = torch._guards.TracingContext.get()
             guards = [str(g.expr) for g in context.fake_mode.shape_env.guards]
-
+            print(type(nt_view._base))
+            print(nt_view._base.shape)
             # varies based on the type of view
             guard_str = "\n".join(guards)
             if isinstance(nt_view._base, NestedTensor):
                 self.assertExpectedInline(guard_str, """Eq(s3 - 1, s0)""")
             else:
-                self.assertExpectedInline(guard_str, """""")
+                if any(isinstance(d, torch.SymInt) for d in nt_view._base.shape):
+                    self.assertExpectedInline(guard_str, """8*s1*s3 <= 8*s0*s1""")
+                else:
+                    self.assertExpectedInline(guard_str, """""")
             return gm
 
         torch._dynamo.reset()
