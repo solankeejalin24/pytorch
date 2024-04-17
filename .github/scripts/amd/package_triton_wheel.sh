@@ -73,7 +73,7 @@ do
         file_path=($(find $ROCM_HOME/ -name "$lib")) # Then search in ROCM_HOME
     fi
     if [[ -z $file_path ]]; then
-        file_path=($(find /opt/ -name "$lib")) # Then search in ROCM_HOME
+        file_path=($(find /opt/ -name "$lib")) # Then search in /opt
     fi
     if [[ -z $file_path ]]; then
             echo "Error: Library file $lib is not found." >&2
