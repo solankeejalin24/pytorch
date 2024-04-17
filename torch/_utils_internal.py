@@ -168,7 +168,6 @@ def max_clock_rate():
             return 1000
 
 
-
 TEST_MASTER_ADDR = "127.0.0.1"
 TEST_MASTER_PORT = 29500
 # USE_GLOBAL_DEPS controls whether __init__.py tries to load
