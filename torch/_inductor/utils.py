@@ -58,6 +58,8 @@ log = logging.getLogger(__name__)
 _T = TypeVar("_T")
 VarRanges = Dict[sympy.Expr, sympy.Expr]
 
+ALIGNMENT = 16
+
 
 def do_bench_using_profiling(fn: Callable[[], Any], warmup=25, rep=100) -> float:
     """
@@ -1558,3 +1560,16 @@ def use_scatter_fallback(
         or (reduction_type == reduce_ty and self_dtype in {torch.bool, torch.int64})
         or torch.are_deterministic_algorithms_enabled()
     )
+
+
+def tensor_is_aligned(tensor: torch.Tensor):
+    return (tensor.storage_offset() * get_dtype_size(tensor.dtype)) % ALIGNMENT == 0
+
+
+def should_assume_input_aligned(example_input: torch.Tensor):
+    # See Note: [Input Alignment handling in Inductor]
+
+    # right now, we only care about alignment for cuda tensors.
+    if example_input.device.type != "cuda":
+        return False
+    return config.assume_aligned_inputs or tensor_is_aligned(example_input)
