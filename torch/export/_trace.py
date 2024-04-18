@@ -586,9 +586,10 @@ def _export_non_strict(
                 name=node.name, class_fqn=val._type().qualified_name()  # type: ignore[attr-defined]
             )
         else:
-            # TODO: this branch is likely wrong, all permissible ConstantArgument type
-            # should have been handled already
-            return ConstantArgument(name=node.name, value=val)
+            raise AssertionError(
+                f"Encountered an unsupported object of type {type(val)} "
+                f"while writing the metadata for exported program"
+            )
 
     input_specs, output_specs = _sig_to_specs(
         user_inputs=set(graph_signature.user_inputs),
