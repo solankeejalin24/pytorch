@@ -35,22 +35,37 @@ jobs:
       id-token: write
       contents: read
 
+  # metrics-test:
+  #   name: custom-test
+  #   runs-on:
+  #     group: linux.2xlarge.c.ii
+  #   steps:
+  #     # [pytorch repo ref]
+  #     # Use a pytorch/pytorch reference instead of a reference to the local
+  #     # checkout because when we run this action we don't *have* a local
+  #     # checkout. In other cases you should prefer a local checkout.
+  #     - name: Checkout PyTorch
+  #       uses: pytorch/pytorch/.github/actions/checkout-pytorch@main
+  #     - name: Upload a metric
+  #       run: |
+  #         python
+
   linux-focal-py3_11-clang10-build:
     name: linux-focal-py3.11-clang10
-    uses: ./.github/workflows/_linux-build-label.yml
+    uses: ./.github/workflows/_linux-build-rg.yml
     with:
       build-environment: linux-focal-py3.11-clang10
       docker-image-name: pytorch-linux-focal-py3.11-clang10
       test-matrix: |
         { include: [
-          { config: "default", shard: 1, num_shards: 3, runner: "linux.2xlarge.c.iii" },
-          { config: "default", shard: 2, num_shards: 3, runner: "linux.2xlarge.c.iii" },
-          { config: "default", shard: 3, num_shards: 3, runner: "linux.2xlarge.c.iii" },
-          { config: "crossref", shard: 1, num_shards: 2, runner: "linux.2xlarge.c.iii" },
-          { config: "crossref", shard: 2, num_shards: 2, runner: "linux.2xlarge.c.iii" },
-          { config: "dynamo", shard: 1, num_shards: 3, runner: "linux.2xlarge.c.iii" },
-          { config: "dynamo", shard: 2, num_shards: 3, runner: "linux.2xlarge.c.iii" },
-          { config: "dynamo", shard: 3, num_shards: 3, runner: "linux.2xlarge.c.iii" },
+          { config: "default", shard: 1, num_shards: 3, runner: "linux.2xlarge.c.ii" },
+          { config: "default", shard: 2, num_shards: 3, runner: "linux.2xlarge.c.ii" },
+          { config: "default", shard: 3, num_shards: 3, runner: "linux.2xlarge.c.ii" },
+          { config: "crossref", shard: 1, num_shards: 2, runner: "linux.2xlarge.c.ii" },
+          { config: "crossref", shard: 2, num_shards: 2, runner: "linux.2xlarge.c.ii" },
+          { config: "dynamo", shard: 1, num_shards: 3, runner: "linux.2xlarge.c.ii" },
+          { config: "dynamo", shard: 2, num_shards: 3, runner: "linux.2xlarge.c.ii" },
+          { config: "dynamo", shard: 3, num_shards: 3, runner: "linux.2xlarge.c.ii" },
         ]}
 
   linux-focal-py3_11-clang10-test:
