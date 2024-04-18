@@ -22,6 +22,9 @@ from torch._dynamo.testing import CompileCounter, same
 
 @torch._dynamo.config.patch(assume_static_by_default=False)
 class UnspecTests(torch._dynamo.test_case.TestCase):
+    def test_junk(self):
+        self.assertTrue(False)
+
     def test_numpy_correctness(self):
         def fn(x, y, z):
             xy = [x + y, y, False]
