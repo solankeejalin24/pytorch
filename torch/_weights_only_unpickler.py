@@ -92,6 +92,12 @@ def _get_allowed_globals():
         torch.int16,
         torch.int32,
         torch.int64,
+        # quantized dtypes
+        torch.qint8,
+        torch.qint32,
+        torch.quint8,
+        torch.quint4x2,
+        torch.quint2x4,
     ]:
         rc[str(t)] = t
     # Tensor classes
@@ -106,9 +112,20 @@ def _get_allowed_globals():
             )
         else:
             rc[f"{ts.__module__}.{ts.__name__}"] = ts
+    # Quantization specific
+    for qt in [
+        torch.per_tensor_affine,
+        torch.per_tensor_symmetric,
+        torch.per_channel_affine,
+        torch.per_channel_symmetric,
+        torch.per_channel_affine_float_qparams,
+    ]:
+        rc[str(qt)] = qt
     # Rebuild functions
     for f in [
         torch._utils._rebuild_parameter,
+        torch._utils._rebuild_parameter_with_state,
+        torch._utils._rebuild_qtensor,
         torch._utils._rebuild_tensor,
         torch._utils._rebuild_tensor_v2,
         torch._utils._rebuild_tensor_v3,
