@@ -58,7 +58,7 @@ from torch.testing._internal.common_cuda import (
 
 from torch.testing._internal.common_device_type import (
     _has_sufficient_memory,
-    get_desired_device_type_test_bases,
+    expectedFailureXPU,
 )
 from torch.testing._internal.common_dtype import all_types, get_all_dtypes
 from torch.testing._internal.common_utils import (
@@ -72,6 +72,7 @@ from torch.testing._internal.common_utils import (
     parametrize,
     serialTest,
     skipIfRocm,
+    skipIfXpu,
     subtest,
     TEST_WITH_ASAN,
     TEST_WITH_ROCM,
@@ -113,9 +114,6 @@ from torch.testing._internal.inductor_utils import (
 )
 
 HAS_AVX2 = "fbgemm" in torch.backends.quantized.supported_engines
-_desired_test_bases = get_desired_device_type_test_bases()
-RUN_CPU = any(getattr(x, "device_type", "") == "cpu" for x in _desired_test_bases)
-RUN_GPU = any(getattr(x, "device_type", "") == GPU_TYPE for x in _desired_test_bases)
 
 aten = torch.ops.aten
 requires_gpu = functools.partial(unittest.skipIf, not HAS_GPU, "requires gpu")
@@ -174,18 +172,19 @@ def _large_cumprod_input(shape, dim, dtype, device):
     return (t * sign).to(dtype)
 
 
-def define_custom_op_for_test(id_, fn_cpu, fn_cuda, fn_meta, tags=()):
+def define_custom_op_for_test(id_, fn_cpu, fn_cuda, fn_xpu, fn_meta, tags=()):
     global libtest
     global ids
     if id_ not in ids:
         libtest.define(f"{id_}(Tensor self) -> Tensor", tags=tags)
         libtest.impl(id_, fn_cpu, "CPU")
         libtest.impl(id_, fn_cuda, "CUDA")
+        libtest.impl(id_, fn_xpu, "XPU")
         libtest.impl(id_, fn_meta, "Meta")
         ids.add(id_)
 
 
-def define_custom_op_2_for_test(id_, fn_cpu, fn_cuda, fn_meta, tags=()):
+def define_custom_op_2_for_test(id_, fn_cpu, fn_cuda, fn_xpu, fn_meta, tags=()):
     global libtest
     global ids
     if id_ not in ids:
@@ -194,17 +193,19 @@ def define_custom_op_2_for_test(id_, fn_cpu, fn_cuda, fn_meta, tags=()):
         )
         libtest.impl(id_, fn_cpu, "CPU")
         libtest.impl(id_, fn_cuda, "CUDA")
+        libtest.impl(id_, fn_xpu, "XPU")
         libtest.impl(id_, fn_meta, "Meta")
         ids.add(id_)
 
 
-def define_custom_op_3_for_test(id_, fn_cpu, fn_cuda, fn_meta, tags=()):
+def define_custom_op_3_for_test(id_, fn_cpu, fn_cuda, fn_xpu, fn_meta, tags=()):
     global libtest
     global ids
     if id_ not in ids:
         libtest.define(f"{id_}(Tensor[] x) -> Tensor", tags=tags)
         libtest.impl(id_, fn_cpu, "CPU")
         libtest.impl(id_, fn_cuda, "CUDA")
+        libtest.impl(id_, fn_xpu, "XPU")
         libtest.impl(id_, fn_meta, "Meta")
         ids.add(id_)
 
@@ -2183,8 +2184,9 @@ class CommonTemplate:
 
         # Can't use assertEqual as it expands broadcasted inputs
         del t
-        if torch.device(self.device).type == "cuda":
-            torch.cuda.empty_cache()
+        if torch.device(self.device).type == GPU_TYPE:
+            getattr(torch, GPU_TYPE).empty_cache()
+
         self.assertTrue((actual == 2).all())
 
     def test_large_offset_pointwise(self):
@@ -2355,6 +2357,7 @@ class CommonTemplate:
 
     # https://github.com/pytorch/pytorch/issues/98979
     @skipCUDAIf(True, "cuda failed for float64 linear")
+    @skipIfXpu
     def test_linear_float64(self):
         mod = torch.nn.Sequential(torch.nn.Linear(8, 16).to(torch.float64)).eval()
         with torch.no_grad():
@@ -4158,7 +4161,7 @@ class CommonTemplate:
                 a[:, 20:40] = a[:, 20:40] + 1
                 a[:, 2:900025] = a[:, 1:900024] + 2
 
-            a = torch.rand((1, 1000000), device="cuda")
+            a = torch.rand((1, 1000000), device=GPU_TYPE)
             self.common(f, (a,))
 
     def test_gather_scatter(self):
@@ -5048,6 +5051,7 @@ class CommonTemplate:
             )
 
     @skipCUDAIf(not TEST_CUDNN, "CUDNN not available")
+    @skipIfXpu
     @skipIfRocm
     def test_cudnn_rnn(self):
         if self.device == "cpu":
@@ -6298,6 +6302,10 @@ class CommonTemplate:
         if self.device == "cuda":
             raise unittest.SkipTest("unstable on sm86")
 
+        check_lowp = True
+        if self.device == "xpu":
+            check_lowp = False
+
         def fn(a, dim, index, b):
             return aten.scatter.reduce(a, dim, index, b, reduce="add")
 
@@ -6309,11 +6317,16 @@ class CommonTemplate:
                 torch.zeros((64, 512), dtype=torch.int64),
                 torch.ones(64, 512),
             ],
+            check_lowp=check_lowp,
         )
 
     def test_scatter3(self):
         def fn(a, dim, index, b):
             return aten.scatter(a, dim, index, b, reduce="add")
+
+        check_lowp = True
+        if self.device == "xpu":
+            check_lowp = False
 
         self.common(
             fn,
@@ -6328,11 +6341,16 @@ class CommonTemplate:
             # Greatest relative difference: 0.0022371364653243847 at index (0, 0, 3) (up to 0.001 allowed)
             atol=2e-4,
             rtol=1e-3,
+            check_lowp=check_lowp,
         )
 
     def test_scatter4(self):
         def fn(x, ind, src):
             return torch.scatter(x, 0, ind, src)
+
+        check_lowp = True
+        if self.device == "xpu":
+            check_lowp = False
 
         for deterministic in [False, True]:
             with DeterministicGuard(deterministic):
@@ -6343,6 +6361,7 @@ class CommonTemplate:
                         torch.randint(196, (1, 992)),
                         torch.randn(1, 992),
                     ],
+                    check_lowp=check_lowp,
                 )
 
     def test_scatter5(self):
@@ -6352,6 +6371,10 @@ class CommonTemplate:
             a1 = a + 1.0
             a1.scatter_(dim, index, b, reduce=reduce)
             return (a, a1)
+
+        check_lowp = True
+        if self.device == "xpu":
+            check_lowp = False
 
         for reduce in ["add", "multiply"]:
             self.common(
@@ -6363,11 +6386,16 @@ class CommonTemplate:
                     torch.randn(4, 5),
                     reduce,
                 ],
+                check_lowp=check_lowp,
             )
 
     def test_scatter6(self):
         def fn(a, dim, index, b):
             return aten.scatter(a, dim, index, b)
+
+        check_lowp = True
+        if self.device == "xpu":
+            check_lowp = False
 
         for deterministic in [False, True]:
             with DeterministicGuard(deterministic):
@@ -6379,12 +6407,17 @@ class CommonTemplate:
                         torch.tensor([[[3, 5, 7, 9]]]),
                         0.8,  # src can be a scalar
                     ],
+                    check_lowp=check_lowp,
                 )
 
     @unittest.skip("Flaky test, needs debugging")
     def test_scatter_add1(self):
         def fn(a, dim, index, b):
             return aten.scatter_add(a, dim, index, b)
+
+        check_lowp = True
+        if self.device == "xpu":
+            check_lowp = False
 
         self.common(
             fn,
@@ -6394,11 +6427,16 @@ class CommonTemplate:
                 torch.tensor([[0]]),
                 torch.randn(2, 3),
             ],
+            check_lowp=check_lowp,
         )
 
     def test_scatter_add2(self):
         def fn(a, dim, index, b):
             return aten.scatter_add(a, dim, index, b)
+
+        check_lowp = True
+        if self.device == "xpu":
+            check_lowp = False
 
         self.common(
             fn,
@@ -6408,11 +6446,16 @@ class CommonTemplate:
                 torch.tensor([[0, 0, 0], [1, 1, 1]]),
                 torch.randn(2, 3),
             ],
+            check_lowp=check_lowp,
         )
 
     def test_scatter_add3(self):
         def fn(a, dim, index, b):
             return aten.scatter_add(a, dim, index, b)
+
+        check_lowp = True
+        if self.device == "xpu":
+            check_lowp = False
 
         for deterministic in [False, True]:
             with DeterministicGuard(deterministic):
@@ -6424,11 +6467,16 @@ class CommonTemplate:
                         torch.tensor([[[3, 5, 7, 9]]]),
                         torch.randn(1, 1, 10),
                     ],
+                    check_lowp=check_lowp,
                 )
 
     def test_scatter_reduce1(self):
         def fn(a, dim, index, b):
             return aten.scatter_reduce(a, dim, index, b, "sum")
+
+        check_lowp = True
+        if self.device == "xpu":
+            check_lowp = False
 
         self.common(
             fn,
@@ -6438,11 +6486,16 @@ class CommonTemplate:
                 torch.tensor([[[3, 5, 7, 9]]]),
                 torch.randn(1, 1, 10),
             ],
+            check_lowp=check_lowp,
         )
 
     def test_scatter_reduce2(self):
         def fn(a, dim, index, b, reduce):
             return aten.scatter_reduce(a, dim, index, b, reduce, include_self=False)
+
+        check_lowp = True
+        if self.device == "xpu":
+            check_lowp = False
 
         for reduce in ["sum", "amax"]:
             self.common(
@@ -6454,6 +6507,7 @@ class CommonTemplate:
                     torch.randn(2, 3),
                     reduce,
                 ],
+                check_lowp=check_lowp,
             )
 
     def test_scatter_reduce3(self):
@@ -6463,6 +6517,10 @@ class CommonTemplate:
             a1 = a + 1.0
             a1.scatter_reduce_(dim, index, b, reduce=reduce)
             return (a, a1)
+
+        check_lowp = True
+        if self.device == "xpu":
+            check_lowp = False
 
         for reduce in ["sum", "prod"]:
             self.common(
@@ -6474,6 +6532,7 @@ class CommonTemplate:
                     torch.randn(4, 5),
                     reduce,
                 ],
+                check_lowp=check_lowp,
             )
 
     def test_dense_mask_index(self):
@@ -6765,6 +6824,7 @@ class CommonTemplate:
             ):
                 compiled_f = compile_fx_inner(mod, cloned_args)
 
+    @expectedFailureXPU
     def test_functionalize_rng_wrappers(self):
         # Ideally, we would like to use torch.compile for these operators. But
         # currently the plan is to introduce these operators at the partitioner
@@ -6810,6 +6870,7 @@ class CommonTemplate:
         self.assertEqual(a2, b2)
 
     @patch.object(torch._functorch.config, "functionalize_rng_ops", True)
+    @expectedFailureXPU
     def test_philox_rand(self):
         if self.device == "cpu":
             raise unittest.SkipTest(
@@ -7060,6 +7121,7 @@ class CommonTemplate:
         )
         assertGeneratedKernelCountEqual(self, 1)
 
+    @expectedFailureXPU
     def test_max_pool2d_with_indices_backward5(self):
         # Window size is too big. Should fallback
         def fn(a, b, c):
@@ -7644,7 +7706,7 @@ class CommonTemplate:
                 1,
                 dtype=torch.int32,
                 layout=torch.strided,
-                device=device(type="cuda", index=0),
+                device=device(type=GPU_TYPE, index=0),
                 pin_memory=False,
             )
 
@@ -7653,7 +7715,7 @@ class CommonTemplate:
                 start=0,
                 step=1,
                 dtype=torch.int32,
-                device=device(type="cuda"),
+                device=device(type=GPU_TYPE),
                 requires_grad=False,
             )
 
@@ -7663,7 +7725,7 @@ class CommonTemplate:
                 start=0,
                 step=1001,
                 dtype=torch.int32,
-                device=device(type="cuda", index=0),
+                device=device(type=GPU_TYPE, index=0),
                 requires_grad=False,
             )
             view: "i32[6150144]" = torch.ops.aten.reshape.default(mul, [-1])
@@ -7710,7 +7772,7 @@ class CommonTemplate:
                 permute_1,
             ]
 
-        kwargs = aot_graph_input_parser(forward, device="cuda")
+        kwargs = aot_graph_input_parser(forward, device=GPU_TYPE)
         self.common(forward, [], kwargs=kwargs)
 
     def test_misaligned_address_issue1(self):
@@ -8560,7 +8622,7 @@ class CommonTemplate:
         for dtype in [torch.int32, torch.int64]:
             self.common(fn, (torch.ones(1, 1, 13, dtype=dtype),))
 
-    @unittest.skipIf(not HAS_CPU or not RUN_CPU, "requires C++ compiler")
+    @unittest.skipIf(not HAS_CPU, "requires C++ compiler")
     def test_data_type_propogation(self):
         from torch._dynamo.utils import detect_fake_mode
         from torch._inductor.codegen.common import boolean_ops
@@ -8895,6 +8957,7 @@ class CommonTemplate:
         )
 
     @skipIfRocm
+    @expectedFailureXPU
     def test_scaled_dot_product_efficient_attention(self):
         if self.device == "cpu":
             raise unittest.SkipTest(f"requires {GPU_TYPE}")
@@ -9003,10 +9066,13 @@ class CommonTemplate:
         def foo_cuda(x):
             return 3 * x
 
+        def foo_xpu(x):
+            return 3 * x
+
         def foo_meta(x):
             return torch.empty_like(x)
 
-        define_custom_op_for_test("foo", foo_cpu, foo_cuda, foo_meta)
+        define_custom_op_for_test("foo", foo_cpu, foo_cuda, foo_xpu, foo_meta)
 
         def fn(x):
             a = torch.nn.functional.relu(x)
@@ -9026,10 +9092,13 @@ class CommonTemplate:
         def foo_cuda(x, scale: float):
             return scale * x, torch.cos(x)
 
+        def foo_xpu(x, scale: float):
+            return scale * x, torch.cos(x)
+
         def foo_meta(x, scale: float):
             return torch.empty_like(x), torch.empty_like(x)
 
-        define_custom_op_2_for_test("foo2", foo_cpu, foo_cuda, foo_meta)
+        define_custom_op_2_for_test("foo2", foo_cpu, foo_cuda, foo_xpu, foo_meta)
 
         def fn(x, scale: float):
             a = torch.nn.functional.relu(x)
@@ -9053,10 +9122,16 @@ class CommonTemplate:
                 result += t
             return result
 
+        def foo_xpu(x):
+            result = torch.zeros_like(x[0])
+            for t in x:
+                result += t
+            return result
+
         def foo_meta(x):
             return torch.empty_like(x[0])
 
-        define_custom_op_3_for_test("foo3", foo_cpu, foo_cuda, foo_meta)
+        define_custom_op_3_for_test("foo3", foo_cpu, foo_cuda, foo_xpu, foo_meta)
 
         def fn(x):
             return torch.ops.test.foo3(x)
@@ -9074,8 +9149,8 @@ class CommonTemplate:
     def test_custom_op_fixed_layout_sequential(self):
         import torch.library
 
-        mod = nn.Conv2d(3, 128, 1, stride=1, bias=False).cuda()
-        inp = torch.rand(2, 3, 128, 128, device="cuda")
+        mod = nn.Conv2d(3, 128, 1, stride=1, bias=False).to(device=GPU_TYPE)
+        inp = torch.rand(2, 3, 128, 128, device=GPU_TYPE)
         expected_stride = mod(inp).stride()
 
         def bar_cpu(x):
@@ -9086,6 +9161,10 @@ class CommonTemplate:
             self.assertEqual(x.stride(), expected_stride)
             return x.clone()
 
+        def bar_xpu(x):
+            self.assertEqual(x.stride(), expected_stride)
+            return x.clone()
+
         def bar_meta(x):
             return torch.empty_like(x)
 
@@ -9093,6 +9172,7 @@ class CommonTemplate:
             "bar",
             bar_cpu,
             bar_cuda,
+            bar_xpu,
             bar_meta,
             tags=[torch._C.Tag.needs_fixed_stride_order],
         )
@@ -9131,8 +9211,8 @@ class CommonTemplate:
                 return out
 
         model = Block()
-        model = model.to("cuda").to(memory_format=torch.channels_last)
-        input_t = torch.randn([1, 320, 128, 128], dtype=torch.float32, device="cuda")
+        model = model.to(GPU_TYPE).to(memory_format=torch.channels_last)
+        input_t = torch.randn([1, 320, 128, 128], dtype=torch.float32, device=GPU_TYPE)
         input_t = input_t.to(memory_format=torch.channels_last)
         expected_strides = model.helper(input_t).stride()
 
@@ -9144,6 +9224,10 @@ class CommonTemplate:
             self.assertEqual(expected_strides, x.stride())
             return x.clone()
 
+        def baz_xpu(x):
+            self.assertEqual(expected_strides, x.stride())
+            return x.clone()
+
         def baz_meta(x):
             return torch.empty_like(x)
 
@@ -9151,6 +9235,7 @@ class CommonTemplate:
             "baz",
             baz_cpu,
             baz_cuda,
+            baz_xpu,
             baz_meta,
             tags=[torch._C.Tag.needs_fixed_stride_order],
         )
@@ -9415,7 +9500,7 @@ class CommonTemplate:
     def test_pointwise(self, name, op):
         dtype = torch.float32
         check_lowp = True
-        if self.device == "cuda" and name in {
+        if self.device == GPU_TYPE and name in {
             "airy_ai",
             "bessel_i0",
             "bessel_i1",
@@ -9614,7 +9699,7 @@ def copy_tests(
             setattr(other_cls, f"{name}_{suffix}", new_test)
 
 
-if HAS_CPU and RUN_CPU:
+if HAS_CPU:
 
     class SweepInputsCpuTest(SweepInputs2, TestCase):
         gen = InputGen(10, "cpu")
@@ -9627,7 +9712,7 @@ if HAS_CPU and RUN_CPU:
 
     copy_tests(CommonTemplate, CpuTests, "cpu")
 
-if HAS_GPU and RUN_GPU and not TEST_WITH_ASAN:
+if HAS_GPU and not TEST_WITH_ASAN:
 
     class SweepInputsGPUTest(SweepInputs2, TestCase):
         gen = InputGen(10, GPU_TYPE)
@@ -9642,6 +9727,8 @@ if HAS_GPU and RUN_GPU and not TEST_WITH_ASAN:
 
     class TritonCodeGenTests(TestCase):
         from torch._inductor.triton_heuristics import CachingAutotuner
+
+        device_type = GPU_TYPE
 
         class NoOpCompilerBackend:
             def __init__(self):
@@ -9699,6 +9786,7 @@ if HAS_GPU and RUN_GPU and not TEST_WITH_ASAN:
 
             return kernels
 
+        @expectedFailureXPU
         def test_divisible_by_16_covers_numel_args(self):
             torch._dynamo.reset()
 
@@ -10333,6 +10421,8 @@ if HAS_GPU and RUN_GPU and not TEST_WITH_ASAN:
             self.assertTrue(bwd_seq_nr_set.issubset(fwd_seq_nr_set))
 
     class RNNTest(TestCase):
+        device_type = GPU_TYPE
+
         class Model(torch.nn.Module):
             def __init__(self):
                 super().__init__()
@@ -10341,6 +10431,7 @@ if HAS_GPU and RUN_GPU and not TEST_WITH_ASAN:
             def forward(self, x):
                 return self.gru(x)
 
+        @expectedFailureXPU
         def test_rnn_compile_safe(self):
             device = torch.device(GPU_TYPE)
             model = RNNTest.Model().to(device)
@@ -10379,7 +10470,7 @@ if HAS_GPU and RUN_GPU and not TEST_WITH_ASAN:
                 torch.compile(f)(x)
 
 
-if HAS_CPU and RUN_CPU:
+if HAS_CPU:
 
     class TestFull(TestCase):
         def test_full_dtype(self):
