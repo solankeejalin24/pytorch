@@ -215,6 +215,20 @@ class TestExport(TestCase):
         #     exported_program.module()(*args, **reversed_kwargs), f(*args, **reversed_kwargs)
         # )
 
+    def test_qualname(self):
+        from torch._export import capture_pre_autograd_graph
+        def _get_name(mod):
+            _cls = mod.__class__
+            return _cls.__module__ + "." + _cls.__qualname__
+
+        class Module(torch.nn.Module):
+            def forward(self, x, y):
+                return x + y
+        f = Module()
+        inp = (torch.ones(1, 3), torch.ones(1, 3))
+        mod = capture_pre_autograd_graph(f, inp)
+        name = _get_name(mod)
+
     def test_basic(self):
         class Module(torch.nn.Module):
             def forward(self, x, y):
