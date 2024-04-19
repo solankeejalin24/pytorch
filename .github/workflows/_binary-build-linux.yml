@@ -139,6 +139,7 @@ jobs:
         run: env
 
       - name: "[FB EMPLOYEES] Enable SSH (Click me for login details)"
+        if: inputs.runs_on != 'linux.s390x'
         uses: pytorch/test-infra/.github/actions/setup-ssh@main
         continue-on-error: true
         with:
@@ -150,9 +151,11 @@ jobs:
           no-sudo: ${{ inputs.build_environment == 'linux-aarch64-binary-manywheel' }}
 
       - name: Setup Linux
+        if: inputs.runs_on != 'linux.s390x'
         uses: ./.github/actions/setup-linux
 
       - name: Chown workspace
+        if: inputs.runs_on != 'linux.s390x'
         uses: ./.github/actions/chown-workspace
         with:
           ALPINE_IMAGE: ${{ inputs.ALPINE_IMAGE }}
@@ -212,7 +215,7 @@ jobs:
             ]}
 
       - name: Pull Docker image
-        if: ${{ steps.filter.outputs.is-test-matrix-empty == 'False' }}
+        if: ${{ steps.filter.outputs.is-test-matrix-empty == 'False' && inputs.runs_on != 'linux.s390x' }}
         uses: pytorch/test-infra/.github/actions/pull-docker-image@main
         with:
           docker-image: ${{ inputs.DOCKER_IMAGE }}
@@ -269,11 +272,11 @@ jobs:
             ${{ runner.temp }}/artifacts/*
 
       - name: Teardown Linux
-        if: always()
+        if: inputs.runs_on != 'linux.s390x'
         uses: pytorch/test-infra/.github/actions/teardown-linux@main
 
       - name: Chown workspace
-        if: always()
+        if: inputs.runs_on != 'linux.s390x'
         uses: ./pytorch/.github/actions/chown-workspace
         with:
           ALPINE_IMAGE: ${{ inputs.ALPINE_IMAGE }}
