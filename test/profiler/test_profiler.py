@@ -1,4 +1,18 @@
 # Owner(s): ["oncall: profiler"]
+
+# if tqdm is not shutdown properly, it will leave the monitor thread alive.
+# This causes an issue in the multithreading test because we check all events
+# in that test with their tids. The events that correspond to these lingering
+# threads all have TID of (uint64_t)(-1) which is invalid.
+# The work around is turnning off monitoring thread when tqdm is loaded.
+# Since these are unit tests, it is safe to turn off monitor thread.
+try:
+    import tqdm
+
+    tqdm.tqdm.monitor_interval = 0
+except ImportError:
+    None
+
 import collections
 import gc
 import json
@@ -532,10 +546,11 @@ class TestExecutionTrace(TestCase):
         a, b, c = (torch.randn(4, 4, requires_grad=True).to("cuda") for _ in range(3))
 
         inputs = [a, b, c]
-        fn(*inputs)
+        with torch._inductor.config.patch(compile_threads=1):
+            fn(*inputs)
 
         # Create a temp file to save execution trace data.
-        fp = tempfile.NamedTemporaryFile("w+t", suffix=".et.json", delete=False)
+        fp = tempfile.NamedTemporaryFile("w+t", suffix="_et.json", delete=False)
         fp.close()
 
         et_file = fp.name
